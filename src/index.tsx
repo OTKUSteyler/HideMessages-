@@ -1,74 +1,119 @@
-import {findByProps} from "@vendetta/metro";
-import {FluxDispatcher} from "@vendetta/metro/common";
-import {after, before} from "@vendetta/patcher";
-import {React, ReactNative as RN} from "@vendetta/metro/common";
-import {getAssetIDByName as getAssetId} from "@vendetta/ui/assets"
-import {logger} from "@vendetta";
+import { findByProps, findInReactTree } from "@vendetta/metro";
+import { after, before } from "@vendetta/patcher";
+import { React } from "@vendetta/metro/common";
+import { getAssetIDByName } from "@vendetta/ui/assets";
+import { logger } from "@vendetta";
 
-let patches = [];
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
 
-function HideMessageRow({onPress}: {onPress: () => void}) {
-    return (
-        <RN.TouchableOpacity
-            onPress={onPress}
-            style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingVertical: 14,
-                paddingHorizontal: 16
-            }}
-        >
-            <RN.Image
-                source={getAssetId("ic_close_16px")}
-                style={{width: 20, height: 20, marginRight: 12, tintColor: "white"}}
-            />
-            <RN.Text style={{color: "white", fontSize: 16}}>
-                Hide Message
-            </RN.Text>
-        </RN.TouchableOpacity>
+let patches = [];
+
+function onLoad() {
+    patches.push(
+        before("openLazy", LazyActionSheet, ([component, key, msg]) => {
+            const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
+            if (!message?.id || !message?.channel_id) return;
+
+            component.then((instance) => {
+                const unpatch = after("default", instance, (_, component) => {
+                    React.useEffect(() => () => {
+                        unpatch();
+                    }, []);
+
+                    // Same two lookup paths as the SaveGif plugin: try the simple
+                    // ButtonRow array first, fall back to ActionSheetRowGroup.
+                    const buttons = findInReactTree(
+                        component,
+                        (x) => x?.[0]?.type?.name === "ButtonRow"
+                    );
+
+                    if (buttons) {
+                        // Wipe every existing row in this array, keep only ours
+                        buttons.length = 0;
+                        buttons.push(
+                            makeRow(message)
+                        );
+                        return;
+                    }
+
+                    const actionSheetContainer = findInReactTree(
+                        component,
+                        (x) => Array.isArray(x) && x[0]?.type?.name === "ActionSheetRowGroup"
+                    );
+
+                    if (actionSheetContainer && actionSheetContainer[0]) {
+                        const upperGroup = actionSheetContainer[0];
+                        const ActionSheetRow = upperGroup.props.children[0]?.type;
+                        const templateIcon = upperGroup.props.children[0]?.props?.icon;
+
+                        if (ActionSheetRow) {
+                            // Replace this group's children with just our row,
+                            // and drop any other groups entirely.
+                            upperGroup.props.children = [
+                                <ActionSheetRow
+                                    label="Hide Message"
+                                    icon={
+                                        templateIcon
+                                            ? {
+                                                  $$typeof: templateIcon.$$typeof,
+                                                  type: templateIcon.type,
+                                                  key: null,
+                                                  ref: null,
+                                                  props: {
+                                                      IconComponent: () =>
+                                                          React.createElement(
+                                                              "Image",
+                                                              { source: getAssetIDByName("ic_close_16px") }
+                                                          ),
+                                                  },
+                                              }
+                                            : undefined
+                                    }
+                                    onPress={() => hideMessage(message)}
+                                    key="hide-message"
+                                />
+                            ];
+                            for (let i = 1; i < actionSheetContainer.length; i++) {
+                                actionSheetContainer[i] = null;
+                            }
+                            return;
+                        }
+                    }
+
+                    logger.log("HideMessages: could not find ButtonRow or ActionSheetRowGroup");
+                });
+            });
+        })
     );
 }
 
-function onLoad() {
-    logger.log("HideMessages: loaded");
-    patches.push(before("openLazy", LazyActionSheet, ([component, key, msg]) => {
-        const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
-        if (!message?.id || !message?.channel_id) return;
+function hideMessage(message) {
+    const { FluxDispatcher } = findByProps("dispatch", "subscribe");
+    FluxDispatcher.dispatch({
+        type: "MESSAGE_DELETE",
+        channelId: message.channel_id,
+        id: message.id,
+        __vml_cleanup: true,
+        otherPluginBypass: true,
+    });
+    LazyActionSheet.hideActionSheet();
+}
 
-        component.then(instance => {
-            const unpatch = after("default", instance, () => {
-                React.useEffect(() => () => {
-                    unpatch()
-                }, [])
-
-                // Replace the ENTIRE sheet contents with just our row
-                return (
-                    <RN.View style={{paddingVertical: 8, paddingBottom: 24}}>
-                        <HideMessageRow
-                            onPress={() => {
-                                FluxDispatcher.dispatch({
-                                    type: "MESSAGE_DELETE",
-                                    channelId: message.channel_id,
-                                    id: message.id,
-                                    __vml_cleanup: true,
-                                    otherPluginBypass: true
-                                })
-                                LazyActionSheet.hideActionSheet()
-                            }}
-                        />
-                    </RN.View>
-                )
-            })
-        })
-    }));
+function makeRow(message) {
+    const { FormRow, FormIcon } = findByProps("FormRow", "FormIcon") ?? {};
+    if (!FormRow) return null;
+    return (
+        <FormRow
+            label="Hide Message"
+            leading={<FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
+            onPress={() => hideMessage(message)}
+        />
+    );
 }
 
 export default {
     onLoad,
     onUnload: () => {
-        for (const unpatch of patches) {
-            unpatch();
-        }
-    }
-        }
+        for (const unpatch of patches) unpatch();
+    },
+};
