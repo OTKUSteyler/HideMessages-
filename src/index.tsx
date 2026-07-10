@@ -21,57 +21,60 @@ function onLoad() {
                         unpatch();
                     }, []);
 
-                    const buttons = findInReactTree(
-                        component,
-                        (x) => x?.[0]?.type?.name === "ButtonRow"
-                    );
+                    try {
+                        const buttons = findInReactTree(
+                            component,
+                            (x) => x?.[0]?.type?.name === "ButtonRow"
+                        );
 
-                    if (buttons) {
-                        buttons.length = 0;
-                        buttons.push(makeRow(message));
-                        return;
-                    }
-
-                    const actionSheetContainer = findInReactTree(
-                        component,
-                        (x) => Array.isArray(x) && x[0]?.type?.name === "ActionSheetRowGroup"
-                    );
-
-                    if (actionSheetContainer && actionSheetContainer[0]) {
-                        const upperGroup = actionSheetContainer[0];
-                        const ActionSheetRow = upperGroup.props.children[0]?.type;
-                        const templateIcon = upperGroup.props.children[0]?.props?.icon;
-
-                        if (ActionSheetRow) {
-                            upperGroup.props.children = [
-                                <ActionSheetRow
-                                    label="Hide Message"
-                                    icon={
-                                        templateIcon
-                                            ? {
-                                                  $$typeof: templateIcon.$$typeof,
-                                                  type: templateIcon.type,
-                                                  key: null,
-                                                  ref: null,
-                                                  props: {
-                                                      IconComponent: () =>
-                                                          makeIcon(),
-                                                  },
-                                              }
-                                            : undefined
-                                    }
-                                    onPress={() => hideMessage(message)}
-                                    key="hide-message"
-                                />
-                            ];
-                            for (let i = 1; i < actionSheetContainer.length; i++) {
-                                actionSheetContainer[i] = null;
-                            }
+                        if (buttons) {
+                            buttons.length = 0;
+                            buttons.push(makeRow(message));
                             return;
                         }
-                    }
 
-                    logger.log("HideMessages: could not find ButtonRow or ActionSheetRowGroup");
+                        const actionSheetContainer = findInReactTree(
+                            component,
+                            (x) => Array.isArray(x) && x[0]?.type?.name === "ActionSheetRowGroup"
+                        );
+
+                        if (actionSheetContainer && actionSheetContainer[0]) {
+                            const upperGroup = actionSheetContainer[0];
+                            const ActionSheetRow = upperGroup.props.children[0]?.type;
+                            const templateIcon = upperGroup.props.children[0]?.props?.icon;
+
+                            if (ActionSheetRow) {
+                                upperGroup.props.children = [
+                                    <ActionSheetRow
+                                        label="Hide Message"
+                                        icon={
+                                            templateIcon
+                                                ? {
+                                                      $$typeof: templateIcon.$$typeof,
+                                                      type: templateIcon.type,
+                                                      key: null,
+                                                      ref: null,
+                                                      props: {
+                                                          IconComponent: () => makeIcon(),
+                                                      },
+                                                  }
+                                                : undefined
+                                        }
+                                        onPress={() => hideMessage(message)}
+                                        key="hide-message"
+                                    />
+                                ];
+                                for (let i = 1; i < actionSheetContainer.length; i++) {
+                                    actionSheetContainer[i] = null;
+                                }
+                                return;
+                            }
+                        }
+
+                        logger.log("HideMessages: could not find ButtonRow or ActionSheetRowGroup");
+                    } catch (e) {
+                        logger.log("HideMessages: CRASH INSIDE PATCH:", e?.message, e?.stack);
+                    }
                 });
             });
         })
@@ -80,6 +83,10 @@ function onLoad() {
 
 function hideMessage(message) {
     const FluxDispatcher = findByProps("dispatch", "subscribe");
+    if (!FluxDispatcher?.dispatch) {
+        logger.log("HideMessages: FluxDispatcher.dispatch not found");
+        return;
+    }
     FluxDispatcher.dispatch({
         type: "MESSAGE_DELETE",
         channelId: message.channel_id,
@@ -91,18 +98,24 @@ function hideMessage(message) {
 }
 
 function makeIcon() {
-    const { FormIcon } = findByProps("FormRow", "FormIcon") ?? {};
-    if (!FormIcon) return null;
-    return <FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
+    const forms = findByProps("FormRow", "FormIcon");
+    if (!forms?.FormIcon) {
+        logger.log("HideMessages: FormIcon not found");
+        return null;
+    }
+    return <forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
 }
 
 function makeRow(message) {
-    const { FormRow, FormIcon } = findByProps("FormRow", "FormIcon") ?? {};
-    if (!FormRow) return null;
+    const forms = findByProps("FormRow", "FormIcon");
+    if (!forms?.FormRow) {
+        logger.log("HideMessages: FormRow not found");
+        return null;
+    }
     return (
-        <FormRow
+        <forms.FormRow
             label="Hide Message"
-            leading={<FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
+            leading={<forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
             onPress={() => hideMessage(message)}
         />
     );
