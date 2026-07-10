@@ -23,8 +23,17 @@ function onLoad() {
                 React.useEffect(() => () => {
                     unpatch()
                 }, [])
-                const buttons = findInReactTree(component, x => x?.[0]?.type?.name === "ButtonRow")
-                if (!buttons) return
+
+                const buttons = findInReactTree(
+                    component,
+                    x => Array.isArray(x) && x.some(y => typeof y?.props?.label === "string" && typeof y?.props?.onPress === "function")
+                )
+
+                if (!buttons) {
+                    logger.log("HideMessages: could not find rows array in action sheet tree")
+                    return
+                }
+
                 buttons.splice(storage.hideMessagesIndex ?? 2, 0,
                     <RedesignRow
                         label={"Hide Message"}
@@ -53,4 +62,4 @@ export default {
         }
     },
     settings: Settings
-}
+                }
