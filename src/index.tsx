@@ -1,16 +1,28 @@
 import {findByProps} from "@vendetta/metro";
 import {FluxDispatcher} from "@vendetta/metro/common";
 import {after, before} from "@vendetta/patcher";
-import {React} from "@vendetta/metro/common";
+import {React, ReactNative as RN} from "@vendetta/metro/common";
 import {getAssetIDByName as getAssetId} from "@vendetta/ui/assets"
 import {findInReactTree} from "@vendetta/utils"
 import Settings from "./components/Settings";
 import {storage} from "@vendetta/plugin";
 import {logger} from "@vendetta";
-import {RedesignRow} from "@nexpid/vdp-shared";
+import {General} from "@vendetta/ui/components";
+
+const {TableRow, TableRowIcon} = General;
 
 let patches = [];
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
+
+function HideMessageRow({onPress}: {onPress: () => void}) {
+    return (
+        <TableRow
+            label="Hide Message"
+            icon={<TableRowIcon source={getAssetId("ic_close_16px")} />}
+            onPress={onPress}
+        />
+    );
+}
 
 function onLoad() {
     logger.log("HideMessages: Index at ", storage.hideMessagesIndex);
@@ -35,9 +47,7 @@ function onLoad() {
                 }
 
                 buttons.splice(storage.hideMessagesIndex ?? 2, 0,
-                    <RedesignRow
-                        label={"Hide Message"}
-                        icon={getAssetId("ic_close_16px")}
+                    <HideMessageRow
                         onPress={() => {
                             FluxDispatcher.dispatch({
                                 type: "MESSAGE_DELETE",
@@ -62,4 +72,4 @@ export default {
         }
     },
     settings: Settings
-                }
+}
