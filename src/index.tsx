@@ -6,6 +6,8 @@ import { getAssetIDByName } from "@vendetta/ui/assets";
 import { storage } from "@vendetta/plugin";
 import { logger } from "@vendetta";
 
+const DEBUG = false; 
+
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
 
 let patches = [];
@@ -31,12 +33,31 @@ function hideMessageLocally(message) {
     LazyActionSheet.hideActionSheet();
 }
 
+function makeIcon() {
+    const forms = findByProps("FormRow", "FormIcon");
+    if (!forms?.FormIcon) return null;
+    return <forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
+}
+
+function makeRow(message) {
+    const forms = findByProps("FormRow", "FormIcon");
+    if (!forms?.FormRow) return null;
+    return (
+        <forms.FormRow
+            label="Hide Message"
+            leading={<forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
+            onPress={() => hideMessageLocally(message)}
+        />
+    );
+}
+
 function onLoad() {
     ensureStorage();
 
-    // --- Patch the action sheet to add our row (unchanged from before) ---
     patches.push(
         before("openLazy", LazyActionSheet, ([component, key, msg]) => {
+            if (typeof key === "string" && !/message|media/i.test(key)) return;
+
             const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
             if (!message?.id || !message?.channel_id) return;
 
@@ -63,7 +84,12 @@ function onLoad() {
                             return;
                         }
 
-                        logger.log("HideMessages: could not find ButtonRow");
+                        // No ButtonRow on this sheet — expected for sheets
+                        // that slipped past the fast-path filter but still
+                        // aren't the message context menu.
+                        if (DEBUG) {
+                            logger.log("HideMessages: could not find ButtonRow, key was", key);
+                        }
                     } catch (e) {
                         logger.log("HideMessages: CRASH INSIDE PATCH:", e?.message, e?.stack);
                     }
@@ -74,18 +100,12 @@ function onLoad() {
         })
     );
 
-    // --- Patch message rendering to actually skip hidden messages ---
-    // MessageStore exposes getMessages/getMessage; the message list is built
-    // from arrays returned here, so filtering at the source hides them
-    // everywhere the list is rendered (main chat, search, jump-to, etc.)
     const MessageStore = findByProps("getMessages", "getMessage");
     if (MessageStore?.getMessages) {
         patches.push(
             after("getMessages", MessageStore, (_, ret) => {
                 if (!ret?._array || !storage.hiddenMessageIds?.length) return ret;
                 try {
-                    // MessageStore results are often a custom List-like object
-                    // with an internal _array; filter it in place if present.
                     ret._array = ret._array.filter((m) => !isHidden(m?.id));
                 } catch (e) {
                     logger.log("HideMessages: filter error", e?.message);
@@ -93,27 +113,9 @@ function onLoad() {
                 return ret;
             })
         );
-    } else {
+    } else if (DEBUG) {
         logger.log("HideMessages: MessageStore.getMessages not found");
     }
-}
-
-function makeIcon() {
-    const forms = findByProps("FormRow", "FormIcon");
-    if (!forms?.FormIcon) return null;
-    return <forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
-}
-
-function makeRow(message) {
-    const forms = findByProps("FormRow", "FormIcon");
-    if (!forms?.FormRow) return null;
-    return (
-        <forms.FormRow
-            label="Hide Message"
-            leading={<forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
-            onPress={() => hideMessageLocally(message)}
-        />
-    );
 }
 
 export default {
