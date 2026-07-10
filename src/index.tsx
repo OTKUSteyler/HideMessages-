@@ -4,31 +4,40 @@ import {after, before} from "@vendetta/patcher";
 import {React, ReactNative as RN} from "@vendetta/metro/common";
 import {getAssetIDByName as getAssetId} from "@vendetta/ui/assets"
 import {findInReactTree} from "@vendetta/utils"
-import Settings from "./components/Settings";
-import {storage} from "@vendetta/plugin";
 import {logger} from "@vendetta";
-import {General} from "@vendetta/ui/components";
-
-const {TableRow, TableRowIcon} = General;
 
 let patches = [];
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
 
 function HideMessageRow({onPress}: {onPress: () => void}) {
     return (
-        <TableRow
-            label="Hide Message"
-            icon={<TableRowIcon source={getAssetId("ic_close_16px")} />}
+        <RN.TouchableOpacity
             onPress={onPress}
-        />
+            style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingVertical: 12,
+                paddingHorizontal: 16
+            }}
+        >
+            <RN.Image
+                source={getAssetId("ic_close_16px")}
+                style={{width: 20, height: 20, marginRight: 12, tintColor: "white"}}
+            />
+            <RN.Text style={{color: "white", fontSize: 16}}>
+                Hide Message
+            </RN.Text>
+        </RN.TouchableOpacity>
     );
 }
 
 function onLoad() {
-    logger.log("HideMessages: Index at ", storage.hideMessagesIndex);
+    logger.log("HideMessages: loaded");
     patches.push(before("openLazy", LazyActionSheet, ([component, key, msg]) => {
         const message = msg?.message;
         if (key != "MessageLongPressActionSheet" || !message) return;
+
+        logger.log("HideMessages: component is", typeof component);
 
         component.then(instance => {
             const unpatch = after("default", instance, (_, component) => {
@@ -42,11 +51,11 @@ function onLoad() {
                 )
 
                 if (!buttons) {
-                    logger.log("HideMessages: could not find rows array in action sheet tree")
+                    logger.log("HideMessages: could not find rows array");
                     return
                 }
 
-                buttons.splice(storage.hideMessagesIndex ?? 2, 0,
+                buttons.splice(2, 0,
                     <HideMessageRow
                         onPress={() => {
                             FluxDispatcher.dispatch({
@@ -70,6 +79,5 @@ export default {
         for (const unpatch of patches) {
             unpatch();
         }
-    },
-    settings: Settings
+    }
 }
