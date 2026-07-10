@@ -8,6 +8,8 @@ import { logger } from "@vendetta";
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
 
 let patches = [];
+let currentMessage = null;
+const patchedInstances = new WeakSet();
 
 function onLoad() {
     patches.push(
@@ -15,12 +17,15 @@ function onLoad() {
             const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
             if (!message?.id || !message?.channel_id) return;
 
-            component.then((instance) => {
-                const unpatch = after("default", instance, (_, component) => {
-                    React.useEffect(() => () => {
-                        unpatch();
-                    }, []);
+            // Always keep this up to date — read at render time, not capture time
+            currentMessage = message;
 
+            component.then((instance) => {
+                // Only ever patch "default" ONCE per module instance
+                if (patchedInstances.has(instance)) return;
+                patchedInstances.add(instance);
+
+                const unpatch = after("default", instance, (_, component) => {
                     try {
                         const buttons = findInReactTree(
                             component,
@@ -28,8 +33,13 @@ function onLoad() {
                         );
 
                         if (buttons) {
-                            // Insert alongside existing rows instead of wiping them
-                            buttons.splice(2, 0, makeRow(message));
+                            // Dedupe guard: never insert if already present
+                            const alreadyThere = buttons.some(
+                                (b) => b?.props?.label === "Hide Message"
+                            );
+                            if (!alreadyThere) {
+                                buttons.splice(2, 0, makeRow(currentMessage));
+                            }
                             return;
                         }
 
@@ -43,8 +53,11 @@ function onLoad() {
                             const ActionSheetRow = upperGroup.props.children[0]?.type;
                             const templateIcon = upperGroup.props.children[0]?.props?.icon;
 
-                            if (ActionSheetRow) {
-                                // Push alongside existing children instead of replacing
+                            const alreadyThere = upperGroup.props.children.some(
+                                (b) => b?.props?.label === "Hide Message"
+                            );
+
+                            if (ActionSheetRow && !alreadyThere) {
                                 upperGroup.props.children.push(
                                     <ActionSheetRow
                                         label="Hide Message"
@@ -61,12 +74,12 @@ function onLoad() {
                                                   }
                                                 : undefined
                                         }
-                                        onPress={() => hideMessage(message)}
+                                        onPress={() => hideMessage(currentMessage)}
                                         key="hide-message"
                                     />
                                 );
-                                return;
                             }
+                            return;
                         }
 
                         logger.log("HideMessages: could not find ButtonRow or ActionSheetRowGroup");
@@ -74,17 +87,23 @@ function onLoad() {
                         logger.log("HideMessages: CRASH INSIDE PATCH:", e?.message, e?.stack);
                     }
                 });
+
+                patches.push(unpatch);
             });
         })
     );
 }
 
 function hideMessage(message) {
+    if (!message) return;
     const FluxDispatcher = findByProps("dispatch", "subscribe");
     if (!FluxDispatcher?.dispatch) {
         logger.log("HideMessages: FluxDispatcher.dispatch not found");
         return;
     }
+    // Dispatch directly — this bypasses Discord's real delete confirmation
+    // prompt entirely, since we never call the native confirm-wrapped
+    // delete action creator, just the client-side removal event.
     FluxDispatcher.dispatch({
         type: "MESSAGE_DELETE",
         channelId: message.channel_id,
@@ -97,19 +116,13 @@ function hideMessage(message) {
 
 function makeIcon() {
     const forms = findByProps("FormRow", "FormIcon");
-    if (!forms?.FormIcon) {
-        logger.log("HideMessages: FormIcon not found");
-        return null;
-    }
+    if (!forms?.FormIcon) return null;
     return <forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
 }
 
 function makeRow(message) {
     const forms = findByProps("FormRow", "FormIcon");
-    if (!forms?.FormRow) {
-        logger.log("HideMessages: FormRow not found");
-        return null;
-    }
+    if (!forms?.FormRow) return null;
     return (
         <forms.FormRow
             label="Hide Message"
@@ -123,5 +136,6 @@ export default {
     onLoad,
     onUnload: () => {
         for (const unpatch of patches) unpatch();
+        patches = [];
     },
 };
