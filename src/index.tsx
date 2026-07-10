@@ -34,10 +34,11 @@ function HideMessageRow({onPress}: {onPress: () => void}) {
 function onLoad() {
     logger.log("HideMessages: loaded");
     patches.push(before("openLazy", LazyActionSheet, ([component, key, msg]) => {
-        const message = msg?.message;
-        if (key != "MessageLongPressActionSheet" || !message) return;
+        // Grab the message no matter which action sheet fired (text, image, video, GIF, sticker, etc.)
+        const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
+        if (!message?.id || !message?.channel_id) return;
 
-        logger.log("HideMessages: component is", typeof component);
+        logger.log("HideMessages: matched sheet key =", key);
 
         component.then(instance => {
             const unpatch = after("default", instance, (_, component) => {
@@ -51,7 +52,7 @@ function onLoad() {
                 )
 
                 if (!buttons) {
-                    logger.log("HideMessages: could not find rows array");
+                    logger.log("HideMessages: could not find rows array for key", key);
                     return
                 }
 
