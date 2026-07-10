@@ -28,8 +28,8 @@ function onLoad() {
                         );
 
                         if (buttons) {
-                            buttons.length = 0;
-                            buttons.push(makeRow(message));
+                            // Insert alongside existing rows instead of wiping them
+                            buttons.splice(2, 0, makeRow(message));
                             return;
                         }
 
@@ -44,7 +44,8 @@ function onLoad() {
                             const templateIcon = upperGroup.props.children[0]?.props?.icon;
 
                             if (ActionSheetRow) {
-                                upperGroup.props.children = [
+                                // Push alongside existing children instead of replacing
+                                upperGroup.props.children.push(
                                     <ActionSheetRow
                                         label="Hide Message"
                                         icon={
@@ -63,10 +64,7 @@ function onLoad() {
                                         onPress={() => hideMessage(message)}
                                         key="hide-message"
                                     />
-                                ];
-                                for (let i = 1; i < actionSheetContainer.length; i++) {
-                                    actionSheetContainer[i] = null;
-                                }
+                                );
                                 return;
                             }
                         }
