@@ -30,7 +30,7 @@ function onLoad() {
         const message = msg?.message;
         if (key != "MessageLongPressActionSheet" || !message) return;
 
-        component().then(instance => {
+        component.then(instance => {
             const unpatch = after("default", instance, (_, component) => {
                 React.useEffect(() => () => {
                     unpatch()
