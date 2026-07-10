@@ -3,7 +3,6 @@ import {FluxDispatcher} from "@vendetta/metro/common";
 import {after, before} from "@vendetta/patcher";
 import {React, ReactNative as RN} from "@vendetta/metro/common";
 import {getAssetIDByName as getAssetId} from "@vendetta/ui/assets"
-import {findInReactTree} from "@vendetta/utils"
 import {logger} from "@vendetta";
 
 let patches = [];
@@ -16,7 +15,7 @@ function HideMessageRow({onPress}: {onPress: () => void}) {
             style={{
                 flexDirection: "row",
                 alignItems: "center",
-                paddingVertical: 12,
+                paddingVertical: 14,
                 paddingHorizontal: 16
             }}
         >
@@ -34,41 +33,32 @@ function HideMessageRow({onPress}: {onPress: () => void}) {
 function onLoad() {
     logger.log("HideMessages: loaded");
     patches.push(before("openLazy", LazyActionSheet, ([component, key, msg]) => {
-        // Grab the message no matter which action sheet fired (text, image, video, GIF, sticker, etc.)
         const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
         if (!message?.id || !message?.channel_id) return;
 
-        logger.log("HideMessages: matched sheet key =", key);
-
         component.then(instance => {
-            const unpatch = after("default", instance, (_, component) => {
+            const unpatch = after("default", instance, () => {
                 React.useEffect(() => () => {
                     unpatch()
                 }, [])
 
-                const buttons = findInReactTree(
-                    component,
-                    x => Array.isArray(x) && x.some(y => typeof y?.props?.label === "string" && typeof y?.props?.onPress === "function")
+                // Replace the ENTIRE sheet contents with just our row
+                return (
+                    <RN.View style={{paddingVertical: 8, paddingBottom: 24}}>
+                        <HideMessageRow
+                            onPress={() => {
+                                FluxDispatcher.dispatch({
+                                    type: "MESSAGE_DELETE",
+                                    channelId: message.channel_id,
+                                    id: message.id,
+                                    __vml_cleanup: true,
+                                    otherPluginBypass: true
+                                })
+                                LazyActionSheet.hideActionSheet()
+                            }}
+                        />
+                    </RN.View>
                 )
-
-                if (!buttons) {
-                    logger.log("HideMessages: could not find rows array for key", key);
-                    return
-                }
-
-                buttons.splice(2, 0,
-                    <HideMessageRow
-                        onPress={() => {
-                            FluxDispatcher.dispatch({
-                                type: "MESSAGE_DELETE",
-                                channelId: message.channel_id,
-                                id: message.id,
-                                __vml_cleanup: true,
-                                otherPluginBypass: true
-                            })
-                            LazyActionSheet.hideActionSheet()
-                        }}
-                    />)
             })
         })
     }));
@@ -81,4 +71,4 @@ export default {
             unpatch();
         }
     }
-}
+        }
