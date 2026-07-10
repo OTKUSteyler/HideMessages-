@@ -1,4 +1,5 @@
-import { findByProps, findInReactTree } from "@vendetta/metro";
+import { findByProps } from "@vendetta/metro";
+import { findInReactTree } from "@vendetta/utils";
 import { after, before } from "@vendetta/patcher";
 import { React } from "@vendetta/metro/common";
 import { getAssetIDByName } from "@vendetta/ui/assets";
@@ -20,19 +21,14 @@ function onLoad() {
                         unpatch();
                     }, []);
 
-                    // Same two lookup paths as the SaveGif plugin: try the simple
-                    // ButtonRow array first, fall back to ActionSheetRowGroup.
                     const buttons = findInReactTree(
                         component,
                         (x) => x?.[0]?.type?.name === "ButtonRow"
                     );
 
                     if (buttons) {
-                        // Wipe every existing row in this array, keep only ours
                         buttons.length = 0;
-                        buttons.push(
-                            makeRow(message)
-                        );
+                        buttons.push(makeRow(message));
                         return;
                     }
 
@@ -47,8 +43,6 @@ function onLoad() {
                         const templateIcon = upperGroup.props.children[0]?.props?.icon;
 
                         if (ActionSheetRow) {
-                            // Replace this group's children with just our row,
-                            // and drop any other groups entirely.
                             upperGroup.props.children = [
                                 <ActionSheetRow
                                     label="Hide Message"
@@ -61,10 +55,7 @@ function onLoad() {
                                                   ref: null,
                                                   props: {
                                                       IconComponent: () =>
-                                                          React.createElement(
-                                                              "Image",
-                                                              { source: getAssetIDByName("ic_close_16px") }
-                                                          ),
+                                                          makeIcon(),
                                                   },
                                               }
                                             : undefined
@@ -88,7 +79,7 @@ function onLoad() {
 }
 
 function hideMessage(message) {
-    const { FluxDispatcher } = findByProps("dispatch", "subscribe");
+    const FluxDispatcher = findByProps("dispatch", "subscribe");
     FluxDispatcher.dispatch({
         type: "MESSAGE_DELETE",
         channelId: message.channel_id,
@@ -97,6 +88,12 @@ function hideMessage(message) {
         otherPluginBypass: true,
     });
     LazyActionSheet.hideActionSheet();
+}
+
+function makeIcon() {
+    const { FormIcon } = findByProps("FormRow", "FormIcon") ?? {};
+    if (!FormIcon) return null;
+    return <FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />;
 }
 
 function makeRow(message) {
