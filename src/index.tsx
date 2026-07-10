@@ -3,6 +3,7 @@ import { findInReactTree } from "@vendetta/utils";
 import { after, before } from "@vendetta/patcher";
 import { React } from "@vendetta/metro/common";
 import { getAssetIDByName } from "@vendetta/ui/assets";
+import { storage } from "@vendetta/plugin";
 import { logger } from "@vendetta";
 
 const LazyActionSheet = findByProps("openLazy", "hideActionSheet");
@@ -11,17 +12,37 @@ let patches = [];
 let currentMessage = null;
 const patchedInstances = new WeakSet();
 
+function ensureStorage() {
+    if (!Array.isArray(storage.hiddenMessageIds)) {
+        storage.hiddenMessageIds = [];
+    }
+}
+
+function isHidden(id) {
+    return storage.hiddenMessageIds?.includes(id);
+}
+
+function hideMessageLocally(message) {
+    if (!message?.id) return;
+    ensureStorage();
+    if (!isHidden(message.id)) {
+        storage.hiddenMessageIds.push(message.id);
+    }
+    LazyActionSheet.hideActionSheet();
+}
+
 function onLoad() {
+    ensureStorage();
+
+    // --- Patch the action sheet to add our row (unchanged from before) ---
     patches.push(
         before("openLazy", LazyActionSheet, ([component, key, msg]) => {
             const message = msg?.message ?? msg?.item?.message ?? msg?.message?.message;
             if (!message?.id || !message?.channel_id) return;
 
-            // Always keep this up to date — read at render time, not capture time
             currentMessage = message;
 
             component.then((instance) => {
-                // Only ever patch "default" ONCE per module instance
                 if (patchedInstances.has(instance)) return;
                 patchedInstances.add(instance);
 
@@ -33,7 +54,6 @@ function onLoad() {
                         );
 
                         if (buttons) {
-                            // Dedupe guard: never insert if already present
                             const alreadyThere = buttons.some(
                                 (b) => b?.props?.label === "Hide Message"
                             );
@@ -43,46 +63,7 @@ function onLoad() {
                             return;
                         }
 
-                        const actionSheetContainer = findInReactTree(
-                            component,
-                            (x) => Array.isArray(x) && x[0]?.type?.name === "ActionSheetRowGroup"
-                        );
-
-                        if (actionSheetContainer && actionSheetContainer[0]) {
-                            const upperGroup = actionSheetContainer[0];
-                            const ActionSheetRow = upperGroup.props.children[0]?.type;
-                            const templateIcon = upperGroup.props.children[0]?.props?.icon;
-
-                            const alreadyThere = upperGroup.props.children.some(
-                                (b) => b?.props?.label === "Hide Message"
-                            );
-
-                            if (ActionSheetRow && !alreadyThere) {
-                                upperGroup.props.children.push(
-                                    <ActionSheetRow
-                                        label="Hide Message"
-                                        icon={
-                                            templateIcon
-                                                ? {
-                                                      $$typeof: templateIcon.$$typeof,
-                                                      type: templateIcon.type,
-                                                      key: null,
-                                                      ref: null,
-                                                      props: {
-                                                          IconComponent: () => makeIcon(),
-                                                      },
-                                                  }
-                                                : undefined
-                                        }
-                                        onPress={() => hideMessage(currentMessage)}
-                                        key="hide-message"
-                                    />
-                                );
-                            }
-                            return;
-                        }
-
-                        logger.log("HideMessages: could not find ButtonRow or ActionSheetRowGroup");
+                        logger.log("HideMessages: could not find ButtonRow");
                     } catch (e) {
                         logger.log("HideMessages: CRASH INSIDE PATCH:", e?.message, e?.stack);
                     }
@@ -92,26 +73,29 @@ function onLoad() {
             });
         })
     );
-}
 
-function hideMessage(message) {
-    if (!message) return;
-    const FluxDispatcher = findByProps("dispatch", "subscribe");
-    if (!FluxDispatcher?.dispatch) {
-        logger.log("HideMessages: FluxDispatcher.dispatch not found");
-        return;
+    // --- Patch message rendering to actually skip hidden messages ---
+    // MessageStore exposes getMessages/getMessage; the message list is built
+    // from arrays returned here, so filtering at the source hides them
+    // everywhere the list is rendered (main chat, search, jump-to, etc.)
+    const MessageStore = findByProps("getMessages", "getMessage");
+    if (MessageStore?.getMessages) {
+        patches.push(
+            after("getMessages", MessageStore, (_, ret) => {
+                if (!ret?._array || !storage.hiddenMessageIds?.length) return ret;
+                try {
+                    // MessageStore results are often a custom List-like object
+                    // with an internal _array; filter it in place if present.
+                    ret._array = ret._array.filter((m) => !isHidden(m?.id));
+                } catch (e) {
+                    logger.log("HideMessages: filter error", e?.message);
+                }
+                return ret;
+            })
+        );
+    } else {
+        logger.log("HideMessages: MessageStore.getMessages not found");
     }
-    // Dispatch directly — this bypasses Discord's real delete confirmation
-    // prompt entirely, since we never call the native confirm-wrapped
-    // delete action creator, just the client-side removal event.
-    FluxDispatcher.dispatch({
-        type: "MESSAGE_DELETE",
-        channelId: message.channel_id,
-        id: message.id,
-        __vml_cleanup: true,
-        otherPluginBypass: true,
-    });
-    LazyActionSheet.hideActionSheet();
 }
 
 function makeIcon() {
@@ -127,7 +111,7 @@ function makeRow(message) {
         <forms.FormRow
             label="Hide Message"
             leading={<forms.FormIcon style={{ opacity: 1 }} source={getAssetIDByName("ic_close_16px")} />}
-            onPress={() => hideMessage(message)}
+            onPress={() => hideMessageLocally(message)}
         />
     );
 }
